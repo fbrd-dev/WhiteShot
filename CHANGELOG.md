@@ -4,6 +4,9 @@ All notable changes to WhiteShot are listed here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Fixed
+- In German (and any language with longer words) the Censor and Highlight tool bars were cut to the wrong size and their pickers ran into the controls next to them. The bars now take the width their controls need and scroll sideways in a narrow window; the status bar, the text recognition bar, the colour popover and the effect dialogs adapt the same way. A test renders every bar in every language of the app, so a language added later is checked automatically.
+
 ## [0.1.0] - 2026-11-06
 
 ### Added

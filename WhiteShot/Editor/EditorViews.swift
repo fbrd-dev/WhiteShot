@@ -136,6 +136,29 @@ private struct ToolButton: View {
 
 // MARK: - Property bar
 
+/// The glass island of a property bar. It is exactly as wide as what it holds, whatever language the labels are in, and when
+/// the window is narrower than that it scrolls sideways instead of squeezing or overlapping its controls. So nothing inside
+/// an island may be given a fixed width: let controls take their natural size.
+struct BarIsland<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    private var padded: some View {
+        content
+            .controlSize(.small)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+    }
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            padded.floatingBackground(cornerRadius: 14)
+            ScrollView(.horizontal, showsIndicators: false) { padded }
+                .fixedSize(horizontal: false, vertical: true)
+                .floatingBackground(cornerRadius: 14)
+        }
+    }
+}
+
 /// Height the property bar needs: taller while text recognition shows its second row.
 func propertyBarHeight(for model: EditorModel) -> CGFloat {
     model.isTextMode && TextRecognitionBar.showsActions(model) ? 76 : 42
@@ -151,6 +174,7 @@ struct PropertyBarView: View {
             content
             Spacer(minLength: 0)
         }
+        .padding(.horizontal, 8)
         .frame(maxWidth: .infinity)
     }
 
@@ -160,19 +184,17 @@ struct PropertyBarView: View {
         } else if model.tool == .crop {
             CropBar(model: model, commands: commands)
         } else if let kind = model.activeKind {
-            HStack(spacing: 12) {
-                StyleControls(model: model, kind: kind)
-                if !model.selection.isEmpty {
-                    Divider().frame(height: 18)
-                    Button { model.deleteSelection() } label: { Image(systemName: "trash") }
-                        .buttonStyle(.borderless)
-                        .help(String(localized: "Delete"))
+            BarIsland {
+                HStack(spacing: 12) {
+                    StyleControls(model: model, kind: kind)
+                    if !model.selection.isEmpty {
+                        Divider().frame(height: 18)
+                        Button { model.deleteSelection() } label: { Image(systemName: "trash") }
+                            .buttonStyle(.borderless)
+                            .help(String(localized: "Delete"))
+                    }
                 }
             }
-            .controlSize(.small)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .floatingBackground(cornerRadius: 14)
         }
     }
 }
@@ -187,14 +209,16 @@ private struct TextRecognitionBar: View {
         model.textMode == .active && !(model.recognizedText?.lines.isEmpty ?? true)
     }
 
+    /// Its own island rather than a `BarIsland`: when the window is too narrow only the second row scrolls, so the first row,
+    /// with the Done button, always stays in reach, and a long hint is shortened instead of pushing Done out of the window.
     var body: some View {
         VStack(spacing: 7) {
             statusRow
             if Self.showsActions(model) {
-                // Scrolls sideways in a narrow window instead of cutting the chips off.
                 ViewThatFits(in: .horizontal) {
                     actionRow
                     ScrollView(.horizontal, showsIndicators: false) { actionRow }
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -290,22 +314,20 @@ private struct CropBar: View {
     unowned let commands: EditorCommands
 
     var body: some View {
-        HStack(spacing: 10) {
-            if let r = model.cropRect, r.width >= 1 {
-                Text(verbatim: "\(Int(r.width)) × \(Int(r.height)) px").monospacedDigit().foregroundStyle(.secondary)
-            } else {
-                Text("Drag on the image to choose the area to keep").foregroundStyle(.secondary)
+        BarIsland {
+            HStack(spacing: 10) {
+                if let r = model.cropRect, r.width >= 1 {
+                    Text(verbatim: "\(Int(r.width)) × \(Int(r.height)) px").monospacedDigit().foregroundStyle(.secondary)
+                } else {
+                    Text("Drag on the image to choose the area to keep").foregroundStyle(.secondary)
+                }
+                Button("Cancel") { commands.cancelCrop() }
+                Button("Crop") { commands.applyCrop() }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.cropRect.map { $0.width < 1 || $0.height < 1 } ?? true)
             }
-            Button("Cancel") { commands.cancelCrop() }
-            Button("Crop") { commands.applyCrop() }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .disabled(model.cropRect.map { $0.width < 1 || $0.height < 1 } ?? true)
         }
-        .controlSize(.small)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .floatingBackground(cornerRadius: 14)
     }
 }
 
@@ -338,7 +360,7 @@ private struct StyleControls: View {
                 Text("Both ↔").tag(ArrowHeads.both)
                 Text("None —").tag(ArrowHeads.none)
             }
-            .labelsHidden().pickerStyle(.menu).frame(width: 90)
+            .labelsHidden().pickerStyle(.menu).fixedSize()
             ShadowToggle(isOn: binding(\.shadow, key: "shadow"))
         case .text, .bubble:
             TextControls(model: model, kind: kind)
@@ -398,7 +420,7 @@ private struct TextControls: View {
             Image(systemName: "text.aligncenter").tag(TextAlign.center)
             Image(systemName: "text.alignright").tag(TextAlign.right)
         }
-        .labelsHidden().pickerStyle(.segmented).frame(width: 90)
+        .labelsHidden().pickerStyle(.segmented).fixedSize()
         Divider().frame(height: 18)
         ColorField(label: String(localized: "Fill Color"), color: binding(\.fillColor, key: "fill"), systemImage: "drop.fill")
         ColorField(label: String(localized: "Border Color"), color: binding(\.strokeColor, key: "stroke"), systemImage: "square.dashed")
@@ -423,7 +445,7 @@ private struct ObfuscateControls: View {
             Text("Blur").tag(ObfuscateMode.blur)
             Text("Black Out").tag(ObfuscateMode.blackout)
         }
-        .labelsHidden().pickerStyle(.segmented).frame(width: 210)
+        .labelsHidden().pickerStyle(.segmented).fixedSize()
 
         switch model.activeStyle.obfuscateMode {
         case .pixelate:
@@ -457,7 +479,7 @@ private struct HighlightControls: View {
             Text("Grayscale").tag(HighlightMode.grayscale)
             Text("Magnify").tag(HighlightMode.magnify)
         }
-        .labelsHidden().pickerStyle(.segmented).frame(width: 280)
+        .labelsHidden().pickerStyle(.segmented).fixedSize()
 
         switch model.activeStyle.highlightMode {
         case .text:
@@ -542,16 +564,30 @@ struct StatusBarView: View {
     let model: EditorModel
     unowned let commands: EditorCommands
 
+    /// In a narrow window, or with long labels in another language, the words give way to icons and the pointer position goes.
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            bar(compact: false)
+            bar(compact: true)
+        }
+        .buttonStyle(.borderless)
+        .font(.system(size: 11))
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func bar(compact: Bool) -> some View {
         HStack(spacing: 14) {
-            Text(verbatim: "\(Int(model.imageSize.width)) × \(Int(model.imageSize.height)) px").monospacedDigit()
-            if let p = model.pointerLocation {
-                Text(verbatim: "x \(Int(p.x))  y \(Int(p.y))").monospacedDigit().foregroundStyle(.secondary)
+            Text(verbatim: "\(Int(model.imageSize.width)) × \(Int(model.imageSize.height)) px").monospacedDigit().lineLimit(1)
+            if !compact, let p = model.pointerLocation {
+                Text(verbatim: "x \(Int(p.x))  y \(Int(p.y))").monospacedDigit().foregroundStyle(.secondary).lineLimit(1)
             }
-            Spacer()
-            Button { commands.pinImage() } label: { Label("Pin", systemImage: "pin").labelStyle(.titleAndIcon) }
-                .help(String(localized: "Pin the picture on top of other windows (⇧⌘P)"))
-            ImageDragHandle(commands: commands)
+            Spacer(minLength: 0)
+            Button { commands.pinImage() } label: {
+                if compact { Image(systemName: "pin") } else { Label("Pin", systemImage: "pin").labelStyle(.titleAndIcon) }
+            }
+            .help(String(localized: "Pin the picture on top of other windows (⇧⌘P)"))
+            ImageDragHandle(commands: commands, compact: compact)
             Divider().frame(height: 12)
             Button { commands.zoomOut() } label: { Image(systemName: "minus") }.help(String(localized: "Zoom Out"))
             Button { commands.zoomToActualSize() } label: {
@@ -561,9 +597,5 @@ struct StatusBarView: View {
             Button { commands.zoomIn() } label: { Image(systemName: "plus") }.help(String(localized: "Zoom In"))
             Button { commands.zoomToFit() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }.help(String(localized: "Fit to Window"))
         }
-        .buttonStyle(.borderless)
-        .font(.system(size: 11))
-        .padding(.horizontal, 12)
-        .frame(maxWidth: .infinity)
     }
 }

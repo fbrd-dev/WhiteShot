@@ -68,3 +68,8 @@ To add another language, add its translations the same way (or edit the catalog 
 ## Pull requests
 
 Keep changes focused, add or update tests for behaviour you change, and make sure `xcodebuild test` passes. By contributing you agree that your work is licensed under the GPL-3.0, like the rest of the project.
+
+### Translations and layout
+
+Text gets longer in other languages (German is often 30% longer than English). Never give a control that shows words a fixed width: let it take its natural size, and put bars inside `BarIsland`, which hugs its content and scrolls sideways when the window is narrower. `LocalizedLayoutTests` renders every bar in every language found in the app bundle and fails if a picker is squeezed below the width its labels need or two controls overlap, so adding a language to the string catalog is covered without touching the tests. The tests always run in English (the test scheme passes `-AppleLanguages (en)`), whatever language the app is set to on your Mac.
+

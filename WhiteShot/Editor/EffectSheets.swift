@@ -112,7 +112,7 @@ struct EffectSheet<Params: Equatable, Controls: View>: View {
                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.primary.opacity(0.15)))
 
                 VStack(alignment: .leading, spacing: 10) { controls($params) }
-                    .frame(width: 240, alignment: .leading)
+                    .frame(minWidth: 240, alignment: .leading)       // wider if a language's labels need it
             }
         }
         .onChange(of: params, initial: true) { _, new in preview = render(thumbnail, new, factor) }

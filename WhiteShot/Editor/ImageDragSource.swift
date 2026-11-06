@@ -47,13 +47,16 @@ final class ImageDragSourceView: NSView, NSDraggingSource {
 /// The draggable handle in the editor's status bar: an icon and a word, with the drag source laid over them.
 struct ImageDragHandle: View {
     unowned let commands: EditorCommands
+    /// Icon only, for when there is not room for the words.
+    var compact = false
 
     var body: some View {
-        Label("Drag image", systemImage: "hand.draw")
-            .labelStyle(.titleAndIcon)
-            .foregroundStyle(.secondary)
-            .overlay { DragSourceRepresentable(commands: commands) }
-            .help(String(localized: "Drag the picture into another app, such as Mail, Slack or the Finder"))
+        Group {
+            if compact { Image(systemName: "hand.draw") } else { Label("Drag image", systemImage: "hand.draw").labelStyle(.titleAndIcon) }
+        }
+        .foregroundStyle(.secondary)
+        .overlay { DragSourceRepresentable(commands: commands) }
+        .help(String(localized: "Drag the picture into another app, such as Mail, Slack or the Finder"))
     }
 
     private struct DragSourceRepresentable: NSViewRepresentable {

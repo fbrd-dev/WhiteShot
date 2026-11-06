@@ -110,5 +110,9 @@ schemes:
       config: Debug
       targets:
         - WhiteShotTests
+      # The tests compare English texts. Passing the language on the command line beats whatever language the app has saved in
+      # its preferences (the tests run inside the real app, which shares them), so the result is the same on every machine.
+      commandLineArguments:
+        "-AppleLanguages (en)": true
     archive:
       config: Release

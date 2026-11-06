@@ -237,7 +237,8 @@ struct ColorEditor: View {
             }
         }
         .padding(14)
-        .frame(width: 268)
+        // At least this wide, wider if the labels of another language need it.
+        .frame(minWidth: 268)
         .onAppear { hexText = color.hexString }
         .onChange(of: color) { _, new in hexText = new.hexString }
     }
