@@ -199,6 +199,23 @@ struct PropertyBarView: View {
     }
 }
 
+/// "Recognizing text…", and after a few seconds the reason it takes longer than usual: Vision's one-time preparation.
+private struct RecognizingStatus: View {
+    let since: Date?
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            if let since, context.date.timeIntervalSince(since) > 3 {
+                Text("Preparing text recognition for the first time. This happens once and can take up to a minute.")
+            } else {
+                Text("Recognizing text…")
+            }
+        }
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+    }
+}
+
 /// The bar above the picture while text recognition is on: what to do with the text and codes found.
 private struct TextRecognitionBar: View {
     let model: EditorModel
@@ -233,7 +250,7 @@ private struct TextRecognitionBar: View {
             Image(systemName: "text.viewfinder").foregroundStyle(Color.accentColor)
             if model.textMode == .recognizing {
                 ProgressView().controlSize(.small)
-                Text("Recognizing text…").foregroundStyle(.secondary)
+                RecognizingStatus(since: model.recognitionStartedAt)
             } else if let error = model.recognitionError {
                 Text("Text recognition failed: \(error)").foregroundStyle(.secondary).lineLimit(1)
             } else if let code = model.selectedCode {

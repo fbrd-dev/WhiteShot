@@ -93,6 +93,7 @@ DE = {
 "When you use Recognize Text in the editor, text of these kinds is marked in orange and can be censored with one click. Nothing is ever censored automatically.": "Wenn du im Editor „Text erkennen“ verwendest, wird Text dieser Arten orange markiert und lässt sich mit einem Klick zensieren. Es wird nie etwas automatisch zensiert.",
 "White": "Weiß",
 "Window capture": "Fensteraufnahme",
+"Preparing text recognition for the first time. This happens once and can take up to a minute.": "Die Texterkennung wird zum ersten Mal vorbereitet. Das geschieht nur einmal und kann bis zu einer Minute dauern.",
 "Apply": "Anwenden",
 "Arrange": "Anordnen",
 "Arrow": "Pfeil",

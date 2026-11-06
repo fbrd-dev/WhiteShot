@@ -73,3 +73,7 @@ Keep changes focused, add or update tests for behaviour you change, and make sur
 
 Text gets longer in other languages (German is often 30% longer than English). Never give a control that shows words a fixed width: let it take its natural size, and put bars inside `BarIsland`, which hugs its content and scrolls sideways when the window is narrower. `LocalizedLayoutTests` renders every bar in every language found in the app bundle and fails if a picker is squeezed below the width its labels need or two controls overlap, so adding a language to the string catalog is covered without touching the tests. The tests always run in English (the test scheme passes `-AppleLanguages (en)`), whatever language the app is set to on your Mac.
 
+### Text recognition and Vision
+
+Vision compiles its models per app (bundle identifier) and per macOS build, into `~/Library/Caches/<bundle id>/com.apple.e5rt.e5bundlecache/<build>/`. `VisionWarmUp` does this ahead of time in a helper process (this app started with `--warm-up-vision`), recorded in the `ocr.warmedUpFor` default. If a new kind of picture is ever found to make Vision stall for seconds on its first use, add a picture like it to `VisionWarmUp.pictures`. The debug-build modes `--debug-ocr-timing`, `--debug-ocr-lab`, `--debug-ocr-warmup` and `--debug-ocr-diversity` measure this; run them in a copy of the app with a throw-away bundle identifier so the model cache starts empty.
+

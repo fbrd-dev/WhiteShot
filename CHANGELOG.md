@@ -4,6 +4,10 @@ All notable changes to WhiteShot are listed here. The format follows [Keep a Cha
 
 ## [Unreleased]
 
+### Changed
+- Text recognition no longer makes the first Recognize Text wait. macOS compiles Vision's models once per app and per macOS version (about 25 seconds for the first picture, a dozen more for the first large window-like screenshot); WhiteShot now does that in a short-lived background helper a few seconds after it starts, once per macOS version, so the app itself never carries the memory it needs. If it is still under way when you press the button, the editor says so.
+- Finding the position of each word in recognised text asks Vision once per word instead of once per character.
+
 ### Fixed
 - In German (and any language with longer words) the Censor and Highlight tool bars were cut to the wrong size and their pickers ran into the controls next to them. The bars now take the width their controls need and scroll sideways in a narrow window; the status bar, the text recognition bar, the colour popover and the effect dialogs adapt the same way. A test renders every bar in every language of the app, so a language added later is checked automatically.
 

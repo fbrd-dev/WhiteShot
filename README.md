@@ -129,7 +129,7 @@ Its own shortcuts win. Keep WhiteShot's default set, or switch the macOS ones of
 Not yet: a selection stops at the edge of the display where you started. Use **Capture All Displays** (menu bar and Capture menu), which stitches all displays into one picture, then crop it in the editor. Displays with different resolutions are brought to the sharpest one's scale.
 
 **The first text recognition takes a long time.**
-The first run after installing can take a while while macOS prepares its text model. After that it takes a fraction of a second.
+macOS prepares its text recognition for each app once, which takes about a minute. WhiteShot does that in the background a few seconds after it starts, once after installing and again after a macOS update, so you normally never wait for it. If you press Recognize Text before it is done, the editor says it is preparing; after that a recognition takes a fraction of a second.
 
 **Is the original kept in a `.whiteshot` project?**
 Yes. A project (Save As › WhiteShot Project) keeps the original picture and your annotations editable, which also means the uncensored original is inside the file. Export a PNG or JPEG to share a censored picture.

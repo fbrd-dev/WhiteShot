@@ -2140,6 +2140,16 @@
         }
       }
     },
+    "Preparing text recognition for the first time. This happens once and can take up to a minute.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Texterkennung wird zum ersten Mal vorbereitet. Das geschieht nur einmal und kann bis zu einer Minute dauern."
+          }
+        }
+      }
+    },
     "Print": {
       "localizations": {
         "de": {

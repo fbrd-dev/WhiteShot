@@ -307,13 +307,21 @@ enum TextRecognizer {
         var spans: [(min: CGFloat, max: CGFloat)?] = []
         var index = string.startIndex
         while index < string.endIndex {
-            let next = string.index(after: index)
-            if let box = (try? candidate.boundingBox(for: index..<next))?.boundingBox, box.width > 0 {
-                spans.append((box.minX * imageWidth, box.maxX * imageWidth))
-            } else {
+            if string[index].isWhitespace {
                 spans.append(nil)
+                index = string.index(after: index)
+                continue
             }
-            index = next
+            // One question per word: Vision answers with the box of the whole word for any character in it.
+            var end = index
+            while end < string.endIndex, !string[end].isWhitespace { end = string.index(after: end) }
+            let count = string.distance(from: index, to: end)
+            if let box = (try? candidate.boundingBox(for: index..<end))?.boundingBox, box.width > 0 {
+                spans.append(contentsOf: Array(repeating: (min: box.minX * imageWidth, max: box.maxX * imageWidth), count: count))
+            } else {
+                spans.append(contentsOf: Array(repeating: nil, count: count))
+            }
+            index = end
         }
         return edges(characters: Array(string), spans: spans, lineRect: rect)
     }

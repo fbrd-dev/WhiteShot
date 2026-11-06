@@ -9,6 +9,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // When hosting unit tests, don't install a status item, hot keys or the welcome alert.
         if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil { return }
 
+        // The Vision warm-up runs this app a second time, without any interface, and must not mistake itself for a second WhiteShot.
+        if CommandLine.arguments.contains(VisionWarmUp.helperFlag) {
+            NSApp.setActivationPolicy(.prohibited)
+            VisionWarmUp.runAsHelper()
+            return
+        }
+
         Preferences.register()
         ShortcutStore.migrateLegacyOverrides()
 
@@ -45,6 +52,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         showWelcomeIfNeeded()
         UpdateChecker.checkAutomatically()
+        VisionWarmUp.scheduleIfNeeded()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

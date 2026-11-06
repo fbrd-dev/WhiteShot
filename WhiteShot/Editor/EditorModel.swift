@@ -163,6 +163,8 @@ final class EditorModel {
     private(set) var recognizedText: RecognizedText?
     var textSelection: TextSelection?
     private(set) var recognitionError: String?
+    /// When the Vision run that is under way began, so the bar can say something kinder if it takes very long.
+    private(set) var recognitionStartedAt: Date?
     @ObservationIgnored private var recognitionGeneration = 0
     @ObservationIgnored private var preservingRecognition = false
     /// The QR code or barcode picked on the canvas, as an index into `recognizedText.codes`.
@@ -580,6 +582,7 @@ final class EditorModel {
             return nil
         }
         textMode = .recognizing
+        recognitionStartedAt = Date()
         refresh()
         return recognitionGeneration
     }
@@ -598,6 +601,7 @@ final class EditorModel {
             recognitionError = error.localizedDescription
         }
         textMode = .active
+        recognitionStartedAt = nil
         refresh()
     }
 
@@ -606,6 +610,7 @@ final class EditorModel {
         guard textMode != .off else { return }
         recognitionGeneration += 1
         if textMode == .recognizing { recognizedText = nil }
+        recognitionStartedAt = nil
         textMode = .off
         textSelection = nil
         refresh()
@@ -615,6 +620,7 @@ final class EditorModel {
         recognitionGeneration += 1
         recognizedText = nil
         sensitiveMatches = []
+        recognitionStartedAt = nil
         selectedCodeIndex = nil
         recognitionError = nil
         textSelection = nil

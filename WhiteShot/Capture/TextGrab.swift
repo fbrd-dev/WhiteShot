@@ -24,6 +24,15 @@ enum TextGrab {
         }
         GrabHUD.shared.show(String(localized: "Recognizing text…"), symbol: "text.viewfinder", busy: true)
         task = Task { @MainActor in
+            // Vision's one-time preparation can take a minute: say so instead of leaving a spinner that looks stuck.
+            let hint = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
+                if !Task.isCancelled {
+                    GrabHUD.shared.show(String(localized: "Preparing text recognition for the first time. This happens once and can take up to a minute."),
+                                        symbol: "text.viewfinder", busy: true)
+                }
+            }
+            defer { hint.cancel() }
             do {
                 let result = try await TextRecognizer.recognize(in: image, text: wantText, codes: wantCodes)
                 guard !Task.isCancelled else { return }

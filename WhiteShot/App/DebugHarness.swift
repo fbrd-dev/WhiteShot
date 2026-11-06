@@ -1,6 +1,8 @@
 #if DEBUG
 import AppKit
 import ScreenCaptureKit
+import Vision
+import CoreText
 import Darwin
 import SwiftUI
 
@@ -40,6 +42,62 @@ enum DebugHarness {
                     if let window = GrabHUD.shared.windowForTesting { print("WINDOW \(window.windowNumber)"); fflush(stdout); try? await Task.sleep(nanoseconds: 6_000_000_000) }
                 }
                 pasteboard.releaseGlobally()
+                exit(0)
+            }
+            return true
+        }
+        if args.contains("--debug-ocr-qr") {
+            NSApp.setActivationPolicy(.accessory)
+            Task { @MainActor in
+                await OCRTiming.runQR()
+                exit(0)
+            }
+            return true
+        }
+        if args.contains("--debug-ocr-diversity") {
+            NSApp.setActivationPolicy(.accessory)
+            Task { @MainActor in
+                await OCRTiming.runDiversity()
+                exit(0)
+            }
+            return true
+        }
+        if args.contains("--debug-ocr-warmup") {
+            NSApp.setActivationPolicy(.accessory)
+            Task { @MainActor in
+                await OCRTiming.runWarmUpLab()
+                exit(0)
+            }
+            return true
+        }
+        if args.contains("--debug-ocr-dense") {
+            NSApp.setActivationPolicy(.accessory)
+            Task { @MainActor in
+                await OCRTiming.runDense()
+                exit(0)
+            }
+            return true
+        }
+        if args.contains("--debug-ocr-lab") {
+            NSApp.setActivationPolicy(.accessory)
+            Task { @MainActor in
+                await OCRTiming.runLab()
+                exit(0)
+            }
+            return true
+        }
+        if args.contains("--debug-ocr-sizes") {
+            NSApp.setActivationPolicy(.accessory)
+            Task { @MainActor in
+                await OCRTiming.runSizes()
+                exit(0)
+            }
+            return true
+        }
+        if args.contains("--debug-ocr-timing") {
+            NSApp.setActivationPolicy(.accessory)
+            Task { @MainActor in
+                await OCRTiming.run()
                 exit(0)
             }
             return true
@@ -873,6 +931,376 @@ enum DragTest {
         fflush(stdout)
         for _ in 0..<120 where !dropped { try? await Task.sleep(nanoseconds: 250_000_000) }
         print(dropped ? "DONE" : "TIMEOUT")
+        fflush(stdout)
+    }
+}
+
+/// How long Vision takes on the synthetic sample, with different settings, in a fresh process. Prints milliseconds.
+@MainActor
+enum OCRTiming {
+    struct Variant {
+        var name: String
+        var level: VNRequestTextRecognitionLevel = .accurate
+        var correction = true
+        var autoLanguage = true
+        var languages: [String] = []
+        var barcodes = true
+    }
+
+    /// Runs one recognition the way `TextRecognizer` does, and returns seconds and the number of lines.
+    static func time(_ image: CGImage, _ v: Variant) async -> (seconds: Double, lines: Int) {
+        let start = Date()
+        let lines: Int = await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let text = VNRecognizeTextRequest()
+                text.recognitionLevel = v.level
+                text.usesLanguageCorrection = v.correction
+                text.automaticallyDetectsLanguage = v.autoLanguage
+                if !v.languages.isEmpty { text.recognitionLanguages = v.languages }
+                var requests: [VNRequest] = [text]
+                if v.barcodes { requests.append(VNDetectBarcodesRequest()) }
+                try? VNImageRequestHandler(cgImage: image, options: [:]).perform(requests)
+                continuation.resume(returning: text.results?.count ?? -1)
+            }
+        }
+        return (Date().timeIntervalSince(start), lines)
+    }
+
+    /// Number of compiled models Vision has cached for this app (entries under the app's e5bundlecache folder).
+    static func cachedModelCount() -> Int {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first?
+            .appendingPathComponent(Bundle.main.bundleIdentifier ?? "").appendingPathComponent("com.apple.e5rt.e5bundlecache")
+        guard let base, let builds = try? FileManager.default.contentsOfDirectory(atPath: base.path) else { return 0 }
+        return builds.reduce(0) { $0 + ((try? FileManager.default.contentsOfDirectory(atPath: base.appendingPathComponent($1).path))?.count ?? 0) }
+    }
+
+    static func dense(width: Int, height: Int) -> CGImage {
+        let ctx = Renderer.makeContext(width: width, height: height, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)!
+        let g = NSGraphicsContext(cgContext: ctx, flipped: true)
+        NSGraphicsContext.saveGraphicsState(); NSGraphicsContext.current = g
+        ctx.translateBy(x: 0, y: CGFloat(height)); ctx.scaleBy(x: 1, y: -1)
+        NSColor.white.setFill(); NSRect(x: 0, y: 0, width: width, height: height).fill()
+        let words = ["function", "return", "value", "request", "result", "let", "config", "string", "image", "model", "count", "index", "self", "guard", "else",
+                     "Invoice", "customer", "payment", "total", "2026-11-06", "alex@example.com", "https://contoso.example/api", "192.168.0.12", "0.75", "42"]
+        var seed: UInt64 = 7
+        func next() -> Int { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return Int(seed >> 33) }
+        let font = NSFont.monospacedSystemFont(ofSize: 24, weight: .regular)
+        var y: CGFloat = 20
+        while y < CGFloat(height) - 40 {
+            var line = ""
+            let count = 4 + next() % 10
+            for _ in 0..<count { line += words[next() % words.count] + " " }
+            (line as NSString).draw(at: CGPoint(x: 40 + CGFloat(next() % 4) * 48, y: y), withAttributes: [.font: font, .foregroundColor: NSColor.black])
+            y += 38
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        return ctx.makeImage()!
+    }
+
+    private static func footprint() -> String {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let status = withUnsafeMutablePointer(to: &info) {
+            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count) }
+        }
+        return status == KERN_SUCCESS ? String(format: "%.0f MB", Double(info.phys_footprint) / 1_048_576) : "?"
+    }
+
+    /// Lines of text of one size and colour on a plain background, drawn with CoreText.
+    static func textPicture(width: Int, height: Int, lines: [String], size: CGFloat, bold: Bool = false, fg: CGColor = CGColor(gray: 0.1, alpha: 1),
+                            bg: CGColor = CGColor(gray: 0.97, alpha: 1), spacing: CGFloat = 1.6, mono: Bool = false, repeatLines: Bool = true,
+                            colorful: Bool = false) -> CGImage {
+        let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)!
+        ctx.setFillColor(bg); ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        let font: NSFont = mono ? NSFont.monospacedSystemFont(ofSize: size, weight: bold ? .bold : .regular) : NSFont.systemFont(ofSize: size, weight: bold ? .bold : .regular)
+        let palette: [CGColor] = [CGColor(red: 0.99, green: 0.5, blue: 0.4, alpha: 1), CGColor(red: 0.5, green: 0.8, blue: 1, alpha: 1), CGColor(red: 0.6, green: 0.9, blue: 0.5, alpha: 1), fg]
+        var y = CGFloat(height) - size * 2
+        var i = 0
+        while y > size {
+            let text = lines[i % lines.count]
+            let attributed = NSMutableAttributedString(string: text, attributes: [.font: font, .foregroundColor: fg])
+            if colorful {
+                var location = 0
+                for word in text.split(separator: " ", omittingEmptySubsequences: false) {
+                    attributed.addAttribute(.foregroundColor, value: palette[(location + i) % palette.count], range: NSRange(location: location, length: word.utf16.count))
+                    location += word.utf16.count + 1
+                }
+            }
+            ctx.textPosition = CGPoint(x: size * 2, y: y)
+            CTLineDraw(CTLineCreateWithAttributedString(attributed), ctx)
+            y -= size * spacing
+            i += 1
+            if !repeatLines && i >= lines.count { break }
+        }
+        return ctx.makeImage()!
+    }
+
+    /// A white picture with one QR code that is `fraction` of the picture's width.
+    static func qrPicture(width: Int, height: Int, fraction: CGFloat) -> CGImage {
+        let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)!
+        ctx.setFillColor(CGColor(gray: 0.95, alpha: 1)); ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        let filter = CIFilter(name: "CIQRCodeGenerator")!
+        filter.setValue(Data("https://contoso.example/pay/2026-0142".utf8), forKey: "inputMessage")
+        let raw = filter.outputImage!.samplingNearest()
+        let side = max(24, CGFloat(width) * fraction)
+        let scale = side / raw.extent.width
+        let scaled = raw.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let qr = CIContext().createCGImage(scaled, from: scaled.extent)!
+        ctx.setFillColor(CGColor(gray: 1, alpha: 1))
+        ctx.fill(CGRect(x: CGFloat(width) * 0.3 - 20, y: CGFloat(height) * 0.4 - 20, width: side + 40, height: side + 40))
+        ctx.draw(qr, in: CGRect(x: CGFloat(width) * 0.3, y: CGFloat(height) * 0.4, width: side, height: side))
+        return ctx.makeImage()!
+    }
+
+    /// Does Vision compile its barcode model for each size of QR code it meets? Text and barcode detection are timed separately.
+    static func runQR() async {
+        func perform(_ image: CGImage, text: Bool, barcodes: Bool) async -> (Double, Int, Int) {
+            let start = Date()
+            let found: (Int, Int) = await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    var requests: [VNRequest] = []
+                    let t = VNRecognizeTextRequest(); t.recognitionLevel = .accurate; t.usesLanguageCorrection = true; t.automaticallyDetectsLanguage = true
+                    let b = VNDetectBarcodesRequest()
+                    if text { requests.append(t) }
+                    if barcodes { requests.append(b) }
+                    try? VNImageRequestHandler(cgImage: image, options: [:]).perform(requests)
+                    continuation.resume(returning: (t.results?.count ?? 0, b.results?.count ?? 0))
+                }
+            }
+            return (Date().timeIntervalSince(start), found.0, found.1)
+        }
+        print("bundle \(Bundle.main.bundleIdentifier ?? "?"), cached models \(cachedModelCount())")
+        let tiny = SampleScreenshot.make(width: 300, height: 120)
+        var before = cachedModelCount()
+        var r = await perform(tiny, text: true, barcodes: false)
+        print(String(format: "  %8.0f ms  cached models %d -> %d  TEXT ONLY, first call (tiny)", r.0 * 1000, before, cachedModelCount()))
+        for fraction in [0.45, 0.3, 0.2, 0.14, 0.1, 0.07, 0.05, 0.035, 0.025, 0.018] as [CGFloat] {
+            before = cachedModelCount()
+            let picture = qrPicture(width: 2000, height: 1200, fraction: fraction)
+            r = await perform(picture, text: false, barcodes: true)
+            print(String(format: "  %8.0f ms  cached models %d -> %d  BARCODES ONLY, QR = %4.1f%% of the width (%4.0f px), codes found %d", r.0 * 1000, before, cachedModelCount(),
+                         fraction * 100, 2000 * fraction, r.2))
+            fflush(stdout)
+        }
+        before = cachedModelCount()
+        r = await perform(SampleScreenshot.make(width: 2560, height: 1600), text: true, barcodes: true)
+        print(String(format: "  %8.0f ms  cached models %d -> %d  TEXT + BARCODES on the sample 5120x3200 afterwards", r.0 * 1000, before, cachedModelCount()))
+    }
+
+    /// After the warm-up in a fresh app: which kinds of pictures still make Vision compile something new?
+    static func runDiversity() async {
+        let report = await VisionWarmUp.run()
+        print(String(format: "warm-up: %.1f s, completed %@, cached models %d", report.seconds.reduce(0, +), report.completedAll ? "yes" : "NO", cachedModelCount()))
+        let prose = ["The quick brown fox jumps over the lazy dog while Alex reads the invoice", "Please transfer 1,170.00 EUR to the account below by Friday",
+                     "Customer support is available from Monday to Friday, 9:00 to 17:00", "Reports, Settings, Dashboard, Payments and Customers"]
+        let code = ["func render(base: CGImage, annotations: [Annotation]) -> CGImage? {", "    guard let ctx = makeContext(width: w, height: h) else { return nil }",
+                    "    let result = annotations.reduce(into: [:]) { $0[$1.id] = $1 }  // 42", "}"]
+        let german = ["Überweisen Sie bitte den Betrag bis Freitag auf das Konto der Müller & Söhne GmbH", "Größe ändern, Schatten hinzufügen, Rand und Weichzeichnen"]
+        let cjk = ["請於週五前將款項匯入以下帳戶，謝謝您的合作", "お支払いは金曜日までにお願いいたします。ご不明な点はお問い合わせください"]
+        let cyrillic = ["Пожалуйста, переведите сумму до пятницы на указанный счёт", "Служба поддержки работает с понедельника по пятницу"]
+        let dark = CGColor(gray: 0.12, alpha: 1), light = CGColor(gray: 0.92, alpha: 1)
+        let cases: [(String, CGImage)] = [
+            ("sample with QR 5120x3200", SampleScreenshot.make(width: 2560, height: 1600)),
+            ("big heading text 100 px, 2560x1600", textPicture(width: 2560, height: 1600, lines: ["Quarterly Report", "Invoice 2026-0142"], size: 100, bold: true, spacing: 1.5)),
+            ("small text 16 px, 2560x1600", textPicture(width: 2560, height: 1600, lines: prose, size: 16)),
+            ("dark mode text 24 px, 2560x1600", textPicture(width: 2560, height: 1600, lines: prose, size: 24, fg: light, bg: dark)),
+            ("coloured code on dark, 3456x2234", textPicture(width: 3456, height: 2234, lines: code, size: 24, fg: light, bg: dark, mono: true, colorful: true)),
+            ("bold text 28 px, 2560x1600", textPicture(width: 2560, height: 1600, lines: prose, size: 28, bold: true)),
+            ("medium text 40 px, 3840x2160", textPicture(width: 3840, height: 2160, lines: prose, size: 40)),
+            ("one very long line 28 px, 3024x300", textPicture(width: 3024, height: 300, lines: [prose[0] + " — " + prose[1] + " — " + prose[2]], size: 28, repeatLines: false)),
+            ("German text 28 px, 2560x1600", textPicture(width: 2560, height: 1600, lines: german, size: 28)),
+            ("Japanese and Chinese text, 2560x1600", textPicture(width: 2560, height: 1600, lines: cjk, size: 32)),
+            ("Cyrillic text, 2560x1600", textPicture(width: 2560, height: 1600, lines: cyrillic, size: 32)),
+        ]
+        if CommandLine.arguments.contains("--many-lines") {
+            // Does a picture with many lines of text need a model of its own? Dense pictures from few lines to very many, then the sample.
+            let words = ["function", "return", "value", "request", "result", "config", "string", "image", "model", "count", "index", "Invoice", "customer"]
+            func lineSet(_ count: Int) -> [String] { (0..<count).map { i in (0..<6).map { words[(i * 7 + $0 * 3) % words.count] }.joined(separator: " ") } }
+            let sets: [(String, CGImage)] = [
+                ("  20 lines of 24 px text, 2560x1600", textPicture(width: 2560, height: 1600, lines: lineSet(20), size: 24, spacing: 3.0, repeatLines: false)),
+                ("  45 lines of 24 px text, 2560x1600", textPicture(width: 2560, height: 1600, lines: lineSet(45), size: 24, spacing: 1.45, repeatLines: false)),
+                ("  70 lines of 20 px text, 3024x1964", textPicture(width: 3024, height: 1964, lines: lineSet(70), size: 20, spacing: 1.35, repeatLines: false)),
+                (" 100 lines of 20 px text, 3456x2234", textPicture(width: 3456, height: 2234, lines: lineSet(100), size: 20, spacing: 1.05, repeatLines: false)),
+                (" 140 lines of 16 px text, 5120x2880", textPicture(width: 5120, height: 2880, lines: lineSet(140), size: 16, spacing: 1.2, repeatLines: false)),
+                (" 200 lines of 14 px text, 5120x2880", textPicture(width: 5120, height: 2880, lines: lineSet(200), size: 14, spacing: 1.0, repeatLines: false)),
+                ("sample with QR 5120x3200", SampleScreenshot.make(width: 2560, height: 1600)),
+            ]
+            for (name, image) in sets {
+                let before = cachedModelCount()
+                let r = await time(image, Variant(name: name))
+                print(String(format: "  %8.0f ms  lines %3d  cached models %d -> %d  %@", r.seconds * 1000, r.lines, before, cachedModelCount(), name))
+                fflush(stdout)
+            }
+            return
+        }
+        let ordered = CommandLine.arguments.contains("--sample-last") ? Array(cases.dropFirst()) + [cases[0]] : cases
+        for (name, image) in ordered {
+            let before = cachedModelCount()
+            let r = await time(image, Variant(name: name))
+            let after = cachedModelCount()
+            print(String(format: "  %8.0f ms  lines %3d  cached models %d -> %d  %@", r.seconds * 1000, r.lines, before, after, name))
+            fflush(stdout)
+        }
+    }
+
+    /// The warm-up in an app whose model cache starts empty, then a mixed set of pictures that must all be fast afterwards.
+    /// With `--concurrent` a recognition is started while the warm-up is still busy.
+    static func runWarmUpLab() async {
+        print("bundle \(Bundle.main.bundleIdentifier ?? "?"), cached models \(cachedModelCount()), memory \(footprint())")
+        if CommandLine.arguments.contains("--concurrent") {
+            let background = Task { await VisionWarmUp.run() }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            let t0 = Date()
+            let r = await time(SampleScreenshot.make(width: 1280, height: 800), Variant(name: "user's first recognition, 2 s into the warm-up"))
+            print(String(format: "  the user's recognition, started 2 s into the warm-up, took %.1f s (lines %d)", Date().timeIntervalSince(t0), r.lines))
+            let report = await background.value
+            print(String(format: "  the warm-up finished %.1f s after it started", report.seconds.reduce(0, +)))
+            return
+        }
+        let start = Date()
+        let report = await VisionWarmUp.run()
+        print(String(format: "warm-up: %.1f s in total, completed: %@, per picture: %@, cached models %d, memory %@", Date().timeIntervalSince(start),
+                     report.completedAll ? "yes" : "NO", report.seconds.map { String(format: "%.1f", $0) }.joined(separator: " / "), cachedModelCount(), footprint()))
+        try? await Task.sleep(nanoseconds: 8_000_000_000)
+        print("  memory 8 s after the warm-up: \(footprint())")
+        try? await Task.sleep(nanoseconds: 20_000_000_000)
+        print("  memory 28 s after the warm-up: \(footprint())")
+        let cases: [(String, CGImage)] = [
+            ("sample with QR 2560x1600", SampleScreenshot.make(width: 1280, height: 800)),
+            ("sample with QR 3200x2000", SampleScreenshot.make(width: 1600, height: 1000)),
+            ("sample with QR 4000x2500", SampleScreenshot.make(width: 2000, height: 1250)),
+            ("sample with QR 5120x3200", SampleScreenshot.make(width: 2560, height: 1600)),
+            ("sample with QR 6016x3384", SampleScreenshot.make(width: 3008, height: 1692)),
+            ("dense text 2560x1600", dense(width: 2560, height: 1600)),
+            ("dense text 3024x1964 (14\" MacBook)", dense(width: 3024, height: 1964)),
+            ("dense text 3456x2234 (16\" MacBook)", dense(width: 3456, height: 2234)),
+            ("dense text 3840x2160 (4K)", dense(width: 3840, height: 2160)),
+            ("dense text 5120x2880 (5K)", dense(width: 5120, height: 2880)),
+            ("dense text 5120x1440 (super ultrawide)", dense(width: 5120, height: 1440)),
+            ("dense text 6016x3384 (6K)", dense(width: 6016, height: 3384)),
+            ("dense text 7680x4320 (8K)", dense(width: 7680, height: 4320)),
+            ("dense text 900x2600 (tall window)", dense(width: 900, height: 2600)),
+            ("dense text 1000x600 (small window)", dense(width: 1000, height: 600)),
+            ("dense text 420x260 (tiny region)", dense(width: 420, height: 260)),
+        ]
+        for (name, image) in cases {
+            let before = cachedModelCount()
+            let r = await time(image, Variant(name: name))
+            let after = cachedModelCount()
+            print(String(format: "  %8.0f ms  lines %3d  cached models %d -> %d  %@", r.seconds * 1000, r.lines, before, after, name))
+            fflush(stdout)
+        }
+    }
+
+    /// A screen full of text: where does the time go once everything is compiled and cached?
+    static func runDense() async {
+        // Everything compiled first (a tiny call plus one large, QR-carrying image), so only the steady-state cost shows.
+        _ = await time(SampleScreenshot.make(width: 300, height: 120), Variant(name: "warm"))
+        for (w, h) in [(2560, 1600), (3456, 2234), (5120, 2880)] {
+            let image = OCRTiming.dense(width: w, height: h)
+            let t0 = Date()
+            let result = try? await TextRecognizer.recognize(in: image)
+            let full = Date().timeIntervalSince(t0)
+            let raw = await time(image, Variant(name: "raw", barcodes: false))
+            let chars = result?.lines.reduce(0) { $0 + $1.text.count } ?? 0
+            let t1 = Date()
+            _ = result.map(SensitiveDetector.matches(in:))
+            let detect = Date().timeIntervalSince(t1)
+            print(String(format: "  %4dx%4d: Vision alone %5.0f ms | full TextRecognizer.recognize %5.0f ms | lines %3d chars %5d | sensitive scan %4.0f ms",
+                         w, h, raw.seconds * 1000, full * 1000, result?.lines.count ?? 0, chars, detect * 1000))
+            fflush(stdout)
+        }
+    }
+
+    /// A fixed sequence of images in an app whose model cache starts empty: which calls compile something new?
+    static func runLab() async {
+        func text(_ lines: [String], width: Int, height: Int, size: CGFloat = 15) -> CGImage {
+            let ctx = Renderer.makeContext(width: width, height: height, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)!
+            let g = NSGraphicsContext(cgContext: ctx, flipped: true)
+            NSGraphicsContext.saveGraphicsState(); NSGraphicsContext.current = g
+            ctx.translateBy(x: 0, y: CGFloat(height)); ctx.scaleBy(x: 1, y: -1)
+            NSColor.white.setFill(); NSRect(x: 0, y: 0, width: width, height: height).fill()
+            for (i, line) in lines.enumerated() {
+                (line as NSString).draw(at: CGPoint(x: 40, y: 40 + CGFloat(i) * size * 2.2), withAttributes: [.font: NSFont.systemFont(ofSize: size * 2), .foregroundColor: NSColor.black])
+            }
+            NSGraphicsContext.restoreGraphicsState()
+            return ctx.makeImage()!
+        }
+        let english = ["Invoice 2026-0142 for Contoso Ltd", "Consulting package three costs 450 euros", "Please call us on Monday morning"]
+        let german = ["Rechnung für Müller & Söhne GmbH", "Überweisung bitte bis Freitag, Straße 12", "Größe: ändern, löschen, öffnen"]
+        let second = CommandLine.arguments.contains("--lab2")
+        let cases: [(String, CGImage)] = second ? [
+            ("tiny English text 600x240", text(english, width: 600, height: 240)),
+            ("sample with QR 2560x1600", SampleScreenshot.make(width: 1280, height: 800)),
+            ("sample with QR 3200x2000", SampleScreenshot.make(width: 1600, height: 1000)),
+            ("sample with QR 4000x2500", SampleScreenshot.make(width: 2000, height: 1250)),
+            ("sample with QR 5120x3200 (the earlier slow one)", SampleScreenshot.make(width: 2560, height: 1600)),
+            ("sample with QR 6016x3384", SampleScreenshot.make(width: 3008, height: 1692)),
+            ("sample with QR 5120x3200 again", SampleScreenshot.make(width: 2560, height: 1600)),
+        ] : [
+            ("tiny English text 600x240", text(english, width: 600, height: 240)),
+            ("tiny English again", text(english, width: 600, height: 240)),
+            ("tiny German text 600x240", text(german, width: 600, height: 240)),
+            ("sample with QR 2560x1600", SampleScreenshot.make(width: 1280, height: 800)),
+            ("ultrawide 3440x1440", text(english, width: 3440, height: 1440)),
+            ("4K 3840x2160", text(english, width: 3840, height: 2160)),
+            ("5K 5120x2880", text(english, width: 5120, height: 2880)),
+            ("6K 6016x3384", text(english, width: 6016, height: 3384)),
+            ("narrow tall 700x2400", text(english, width: 700, height: 2400)),
+            ("sample with QR again", SampleScreenshot.make(width: 1280, height: 800)),
+        ]
+        print("bundle \(Bundle.main.bundleIdentifier ?? "?"), cached models at start: \(cachedModelCount())")
+        for (name, image) in cases {
+            let before = cachedModelCount()
+            let r = await time(image, Variant(name: name))
+            let after = cachedModelCount()
+            print(String(format: "  %8.0f ms  lines %2d  cached models %d -> %d  %@", r.seconds * 1000, r.lines, before, after, name))
+            fflush(stdout)
+        }
+    }
+
+    /// First call per image size, in pixels, never used before: where does Vision's one-time preparation kick in?
+    static func runSizes() async {
+        let sizes = CommandLine.arguments.drop { $0 != "--sizes" }.dropFirst().first.map { $0.split(separator: ",").map(String.init) } ?? []
+        for entry in sizes {
+            let parts = entry.split(separator: "x").compactMap { Int($0) }
+            guard parts.count == 2 else { continue }
+            let image = SampleScreenshot.make(width: parts[0] / 2, height: parts[1] / 2)
+            let first = await time(image, Variant(name: entry))
+            let second = await time(image, Variant(name: entry))
+            print(String(format: "  %5d x %5d px (%5.1f MP): first %8.0f ms   second %6.0f ms   lines %d", image.width, image.height,
+                         Double(image.width * image.height) / 1e6, first.seconds * 1000, second.seconds * 1000, first.lines))
+            fflush(stdout)
+        }
+    }
+
+    static func run() async {
+        func ms(_ s: Double) -> String { String(format: "%7.0f ms", s * 1000) }
+        let tiny = SampleScreenshot.make(width: 300, height: 120)             // 600 x 240 px with a few lines of text
+        let normal = SampleScreenshot.make(width: 1280, height: 800)           // 2560 x 1600 px, a typical Retina window
+        let huge = SampleScreenshot.make(width: 2560, height: 1600)            // 5120 x 3200 px, a full 5K screen
+        print("process started; first calls in this process:")
+        let base = Variant(name: "baseline")
+        for i in 1...3 { let r = await time(tiny, base); print("  tiny   call \(i): \(ms(r.seconds))  lines \(r.lines)") }
+        for i in 1...3 { let r = await time(normal, base); print("  normal call \(i): \(ms(r.seconds))  lines \(r.lines)") }
+        for i in 1...2 { let r = await time(huge, base); print("  huge   call \(i): \(ms(r.seconds))  lines \(r.lines)") }
+        print("variants on the normal image (best of 3):")
+        let variants = [
+            Variant(name: "baseline (accurate, correction, auto language, barcodes)"),
+            Variant(name: "without barcode detection", barcodes: false),
+            Variant(name: "language correction off", correction: false),
+            Variant(name: "auto language off, en-US + de-DE", autoLanguage: false, languages: ["en-US", "de-DE"]),
+            Variant(name: "auto language off, en-US only", autoLanguage: false, languages: ["en-US"]),
+            Variant(name: "fast level", level: .fast),
+            Variant(name: "fast, no correction, no barcodes", level: .fast, correction: false, barcodes: false),
+        ]
+        for v in variants {
+            var best = Double.infinity, lines = 0
+            for _ in 1...3 { let r = await time(normal, v); best = min(best, r.seconds); lines = r.lines }
+            print("  \(ms(best))  lines \(lines)  \(v.name)")
+        }
         fflush(stdout)
     }
 }
