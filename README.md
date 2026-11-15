@@ -72,7 +72,7 @@ After each capture WhiteShot can open the editor, copy to the clipboard, save to
 
 ### Recognize text and censor it
 
-The text button in the editor toolbar reads the picture with Apple's text recognition, entirely on your Mac. Every line it finds lies over the text in the picture: drag to select, double-click for a word, triple-click for a line, <kbd>⌘A</kbd> for everything and <kbd>⌘C</kbd> to copy.
+The text button in the editor toolbar reads the picture with Apple's text recognition, entirely on your Mac. Every line it finds lies over the text in the picture: drag to select, double-click for a word, triple-click for a line, <kbd>⌘A</kbd> for everything and <kbd>⌘C</kbd> to copy. It is ready when you need it: WhiteShot prepares the recognition quietly in the background after you install it, so even the first picture is read in a fraction of a second.
 
 <p align="center">
   <img src="docs/text.png" width="860" alt="Text recognition in the editor: recognized lines, orange suggestions for an email address, IBAN, card and phone number, and a QR code">
@@ -135,7 +135,7 @@ macOS prepares its text recognition for each app once, which takes about a minut
 Yes. A project (Save As › WhiteShot Project) keeps the original picture and your annotations editable, which also means the uncensored original is inside the file. Export a PNG or JPEG to share a censored picture.
 
 **Where do I change the language?**
-Settings › General. WhiteShot follows your Mac's language (English or German) by default.
+Settings › General. WhiteShot follows your Mac's language (English or German) by default. The tool options, dialogs and status bar adjust to the length of the words, so nothing gets cut off or overlaps in German.
 
 ## Not included
 

@@ -2,7 +2,7 @@
 
 All notable changes to WhiteShot are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.1.1] - 2026-11-15
 
 ### Changed
 - Text recognition no longer makes the first Recognize Text wait. macOS compiles Vision's models once per app and per macOS version (about 25 seconds for the first picture, a dozen more for the first large window-like screenshot); WhiteShot now does that in a short-lived background helper a few seconds after it starts, once per macOS version, so the app itself never carries the memory it needs. If it is still under way when you press the button, the editor says so.
